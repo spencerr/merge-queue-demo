@@ -1,0 +1,284 @@
+name: Merge Group CI
+
+on:
+  merge_group:
+    types: [checks_requested]
+
+jobs:
+  # Job 1: Fast Quality Checks
+  quick-checks:
+    name: Quick Quality Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout merge group
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.merge_group.head_sha }}
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Quick lint check
+      run: npm run lint
+      
+    - name: Syntax validation
+      run: |
+        node -c src/index.js
+        node -c src/utils.js
+
+  # Job 2: Build Verification
+  build-verification:
+    name: Build Verification
+    runs-on: ubuntu-latest
+    needs: quick-checks
+    
+    steps:
+    - name: Checkout merge group
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.merge_group.head_sha }}
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build application
+      run: npm run build
+      
+    - name: Verify build artifacts
+      run: |
+        echo "Verifying build completed successfully"
+        ls -la src/
+
+  # Job 3: Comprehensive Testing
+  comprehensive-tests:
+    name: Comprehensive Test Suite
+    runs-on: ubuntu-latest
+    needs: quick-checks
+    
+    strategy:
+      matrix:
+        node-version: [16, 18, 20]
+        test-type: [unit, integration]
+    
+    steps:
+    - name: Checkout merge group
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.merge_group.head_sha }}
+        
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run unit tests
+      if: matrix.test-type == 'unit'
+      run: npm test
+      
+    - name: Run integration tests
+      if: matrix.test-type == 'integration'
+      run: |
+        # Start the application
+        npm start &
+        APP_PID=$!
+        sleep 5
+        
+        # Run integration tests
+        curl -f http://localhost:3000/health || exit 1
+        
+        # Test all API endpoints
+        curl -f -X POST http://localhost:3000/api/sum \
+          -H "Content-Type: application/json" \
+          -d '{"numbers": [1, 2, 3, 4, 5]}' || exit 1
+          
+        curl -f -X POST http://localhost:3000/api/product \
+          -H "Content-Type: application/json" \
+          -d '{"numbers": [2, 3, 4]}' || exit 1
+          
+        curl -f -X POST http://localhost:3000/api/calculate \
+          -H "Content-Type: application/json" \
+          -d '{"operation": "sum", "numbers": [10, 20, 30]}' || exit 1
+          
+        # Clean up
+        kill $APP_PID || true
+        
+        echo "All integration tests passed!"
+
+  # Job 4: Security and Compliance
+  security-compliance:
+    name: Security & Compliance
+    runs-on: ubuntu-latest
+    needs: quick-checks
+    
+    steps:
+    - name: Checkout merge group
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.merge_group.head_sha }}
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Security audit
+      run: npm audit --audit-level=moderate
+      
+    - name: License compliance check
+      run: |
+        echo "Checking license compliance..."
+        npm ls --depth=0
+        
+    - name: Dependency vulnerability scan
+      run: |
+        echo "Running dependency vulnerability scan..."
+        echo "In a real project, this would run tools like:"
+        echo "- Snyk"
+        echo "- OWASP Dependency Check"
+        echo "- GitHub Security Advisories"
+
+  # Job 5: Performance Validation
+  performance-validation:
+    name: Performance Validation
+    runs-on: ubuntu-latest
+    needs: [build-verification, comprehensive-tests]
+    
+    steps:
+    - name: Checkout merge group
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.merge_group.head_sha }}
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Start application for performance testing
+      run: |
+        npm start &
+        APP_PID=$!
+        echo "APP_PID=$APP_PID" >> $GITHUB_ENV
+        sleep 5
+        
+    - name: Performance baseline tests
+      run: |
+        echo "Running performance baseline tests..."
+        
+        # Test response time for health endpoint
+        for i in {1..5}; do
+          time curl -s http://localhost:3000/health > /dev/null
+        done
+        
+        # Test API endpoint performance
+        for i in {1..3}; do
+          time curl -s -X POST http://localhost:3000/api/sum \
+            -H "Content-Type: application/json" \
+            -d '{"numbers": [1, 2, 3, 4, 5]}' > /dev/null
+        done
+        
+        echo "Performance tests completed"
+        
+    - name: Cleanup
+      if: always()
+      run: |
+        if [ ! -z "$APP_PID" ]; then
+          kill $APP_PID || true
+        fi
+
+  # Job 6: Final Merge Validation
+  merge-validation:
+    name: Final Merge Validation
+    runs-on: ubuntu-latest
+    needs: [build-verification, comprehensive-tests, security-compliance, performance-validation]
+    
+    steps:
+    - name: Checkout merge group
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.merge_group.head_sha }}
+        fetch-depth: 0
+        
+    - name: Validate merge group state
+      run: |
+        echo "Validating merge group state..."
+        echo "Head SHA: ${{ github.event.merge_group.head_sha }}"
+        echo "Base SHA: ${{ github.event.merge_group.base_sha }}"
+        
+        # Verify we can see the merge commit
+        git log --oneline -5
+        
+    - name: Final validation checks
+      run: |
+        echo "Running final validation checks..."
+        echo "✅ All CI checks have passed"
+        echo "✅ Security scans completed"
+        echo "✅ Performance validation passed"
+        echo "✅ Build verification successful"
+        echo "✅ Comprehensive tests passed"
+        echo ""
+        echo "🚀 Ready for merge to main branch!"
+
+  # Job 7: Merge Group Summary
+  merge-summary:
+    name: Merge Group Summary
+    runs-on: ubuntu-latest
+    needs: [quick-checks, build-verification, comprehensive-tests, security-compliance, performance-validation, merge-validation]
+    if: always()
+    
+    steps:
+    - name: Generate merge group summary
+      run: |
+        echo "## Merge Group Validation Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Merge Group:** ${{ github.event.merge_group.head_sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Base Branch:** ${{ github.event.merge_group.base_ref }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Validation Step | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Quick Checks | ${{ needs.quick-checks.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Build Verification | ${{ needs.build-verification.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Comprehensive Tests | ${{ needs.comprehensive-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Security & Compliance | ${{ needs.security-compliance.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Performance Validation | ${{ needs.performance-validation.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Final Merge Validation | ${{ needs.merge-validation.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Determine overall status
+        if [[ "${{ needs.quick-checks.result }}" == "success" && 
+              "${{ needs.build-verification.result }}" == "success" && 
+              "${{ needs.comprehensive-tests.result }}" == "success" && 
+              "${{ needs.security-compliance.result }}" == "success" && 
+              "${{ needs.performance-validation.result }}" == "success" && 
+              "${{ needs.merge-validation.result }}" == "success" ]]; then
+          echo "## ✅ MERGE APPROVED" >> $GITHUB_STEP_SUMMARY
+          echo "All validation checks passed. The merge group is ready to be merged into the main branch." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "## ❌ MERGE BLOCKED" >> $GITHUB_STEP_SUMMARY
+          echo "One or more validation checks failed. Please review the failed jobs and fix any issues before attempting to merge." >> $GITHUB_STEP_SUMMARY
+        fi

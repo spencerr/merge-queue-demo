@@ -1,0 +1,44 @@
+{
+  "name": "merge-queue-demo",
+  "version": "1.0.0",
+  "description": "A sample Node.js application demonstrating GitHub merge queue workflows with pull request and merge group events",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "build": "echo 'Build step - in a real app this would compile/bundle the code'",
+    "lint": "echo 'Lint step - in a real app this would run ESLint or similar'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spencerr/merge-queue-demo.git"
+  },
+  "keywords": [
+    "merge-queue",
+    "github-actions",
+    "ci-cd",
+    "demo",
+    "express",
+    "nodejs"
+  ],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/spencerr/merge-queue-demo/issues"
+  },
+  "homepage": "https://github.com/spencerr/merge-queue-demo#readme",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "helmet": "^8.1.0",
+    "morgan": "^1.10.1"
+  },
+  "devDependencies": {
+    "jest": "^27.5.1",
+    "nodemon": "^3.1.10",
+    "supertest": "^7.1.3"
+  }
+}

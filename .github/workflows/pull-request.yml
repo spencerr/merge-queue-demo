@@ -1,0 +1,223 @@
+name: Pull Request CI
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  # Job 1: Code Quality and Linting
+  lint:
+    name: Code Quality & Linting
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run linting
+      run: npm run lint
+      
+    - name: Check code formatting
+      run: echo "Code formatting check - in a real project this would run Prettier or similar"
+
+  # Job 2: Build
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: lint
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build application
+      run: npm run build
+      
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: |
+          src/
+          package*.json
+        retention-days: 1
+
+  # Job 3: Unit Tests
+  test-unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    
+    strategy:
+      matrix:
+        node-version: [16, 18, 20]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run unit tests
+      run: npm test
+      
+    - name: Upload test coverage
+      uses: actions/upload-artifact@v4
+      if: matrix.node-version == '18'
+      with:
+        name: coverage-report
+        path: coverage/
+        retention-days: 7
+
+  # Job 4: Integration Tests
+  test-integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [build, test-unit]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: build-artifacts
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Start application
+      run: |
+        npm start &
+        sleep 5
+        
+    - name: Run integration tests
+      run: |
+        # Test health endpoint
+        curl -f http://localhost:3000/health || exit 1
+        
+        # Test API endpoints
+        curl -f -X POST http://localhost:3000/api/sum \
+          -H "Content-Type: application/json" \
+          -d '{"numbers": [1, 2, 3, 4, 5]}' || exit 1
+          
+        echo "Integration tests passed!"
+
+  # Job 5: Security Scan
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: lint
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run security audit
+      run: npm audit --audit-level=moderate
+      
+    - name: Run dependency check
+      run: echo "Dependency vulnerability check - in a real project this would run tools like Snyk or OWASP"
+
+  # Job 6: Performance Tests
+  performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [build, test-unit]
+    if: github.event.pull_request.draft == false
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Start application
+      run: |
+        npm start &
+        sleep 5
+        
+    - name: Run performance tests
+      run: |
+        echo "Performance testing - in a real project this would run load tests"
+        # Simple performance check
+        time curl -s http://localhost:3000/health > /dev/null
+
+  # Job 7: Summary
+  pr-summary:
+    name: PR Summary
+    runs-on: ubuntu-latest
+    needs: [lint, build, test-unit, test-integration, security, performance]
+    if: always()
+    
+    steps:
+    - name: PR Summary
+      run: |
+        echo "## Pull Request CI Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Lint | ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Build | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Unit Tests | ${{ needs.test-unit.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Integration Tests | ${{ needs.test-integration.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Security | ${{ needs.security.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Performance | ${{ needs.performance.result }} |" >> $GITHUB_STEP_SUMMARY
+        
+        if [[ "${{ needs.lint.result }}" == "success" && 
+              "${{ needs.build.result }}" == "success" && 
+              "${{ needs.test-unit.result }}" == "success" && 
+              "${{ needs.test-integration.result }}" == "success" && 
+              "${{ needs.security.result }}" == "success" ]]; then
+          echo "✅ All required checks passed! PR is ready for review." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Some checks failed. Please review and fix issues." >> $GITHUB_STEP_SUMMARY
+        fi
